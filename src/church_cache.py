@@ -105,6 +105,41 @@ class ChurchCache:
         if len([k for k in self.cache.keys() if k.startswith('contact_')]) % 50 == 0:
             self._save_cache()
     
+    def get_geocode(self, address: str, max_age_days: int = 365) -> Optional[tuple]:
+        """Get cached geocode coordinates for an address (1 year default)"""
+        cache_key = f"geocode_{address.lower().strip()}"
+        
+        if cache_key not in self.cache:
+            return None
+        
+        cached_data = self.cache[cache_key]
+        
+        # Check if expired
+        cached_time = datetime.fromisoformat(cached_data['timestamp'])
+        age = datetime.now() - cached_time
+        
+        if age > timedelta(days=max_age_days):
+            return None
+        
+        return (cached_data['latitude'], cached_data['longitude'])
+    
+    def set_geocode(self, address: str, latitude: float, longitude: float):
+        """Cache geocode coordinates for an address"""
+        cache_key = f"geocode_{address.lower().strip()}"
+        
+        self.cache[cache_key] = {
+            'address': address,
+            'timestamp': datetime.now().isoformat(),
+            'latitude': latitude,
+            'longitude': longitude
+        }
+        
+        # Save periodically
+        geocode_count = len([k for k in self.cache.keys() if k.startswith('geocode_')])
+        if geocode_count % 20 == 0:
+            self._save_cache()
+            logger.debug(f"Saved geocode cache ({geocode_count} locations)")
+    
     def clear_expired(self, max_age_hours: int = 168):
         """Clear expired cache entries"""
         now = datetime.now()

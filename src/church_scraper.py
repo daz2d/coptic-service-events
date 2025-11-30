@@ -127,6 +127,10 @@ class ChurchEventScraper:
             
             title = title_elem.get_text().strip()
             
+            # Skip if title is empty or too short
+            if not title or len(title) < 3:
+                return None
+            
             # Extract date and time
             date_str, time_str = self._extract_date_time(container)
             if not date_str:

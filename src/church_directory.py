@@ -62,6 +62,137 @@ class ChurchDirectoryScraper:
         
         return unique_churches
     
+    def discover_churches_by_radius(self, user_lat: float, user_lon: float, 
+                                   radius_miles: float, state: str = None) -> List[Dict]:
+        """
+        ULTRA OPTIMIZED: Cache church coordinates directly, skip all geocoding on subsequent runs
+        """
+        from geopy.geocoders import Nominatim
+        from geopy.distance import geodesic
+        import re
+        
+        geolocator = Nominatim(user_agent="coptic-events-bot")
+        
+        # Try to get from cache first
+        churches_basic = None
+        if self.use_cache and state:
+            churches_basic = self.cache.get_churches_for_state(state, max_age_hours=720)  # 30 days
+        
+        # If not in cache, fetch lightweight list
+        if not churches_basic:
+            churches_basic = self._scrape_nihov_by_state_lightweight(state) if state else []
+        
+        # OPTIMIZATION: Only process churches that HAVE websites
+        churches_with_websites = [c for c in churches_basic if c.get('url')]
+        logger.info(f"🌐 {len(churches_with_websites)}/{len(churches_basic)} churches have websites")
+        
+        # Extract city from church name for those without it
+        for church in churches_with_websites:
+            if not church.get('city'):
+                city_match = re.search(r'[-\[]([^-\]]+)[\]]?$', church.get('name', ''))
+                if city_match:
+                    church['city'] = city_match.group(1).strip()
+        
+        # ULTRA OPTIMIZATION: Check which churches already have coordinates in cache
+        churches_needing_geocode = []
+        churches_already_geocoded = []
+        
+        for church in churches_with_websites:
+            # Use church name + city as unique key
+            church_key = f"{church.get('name', '')}, {church.get('state', '')}"
+            
+            if church.get('latitude') and church.get('longitude'):
+                # Already has coords from cache
+                churches_already_geocoded.append(church)
+            elif self.use_cache:
+                # Check if we've geocoded this church before
+                coords = self.cache.get_geocode(church_key)
+                if coords:
+                    church['latitude'] = coords[0]
+                    church['longitude'] = coords[1]
+                    churches_already_geocoded.append(church)
+                else:
+                    churches_needing_geocode.append(church)
+            else:
+                churches_needing_geocode.append(church)
+        
+        logger.info(f"📍 {len(churches_already_geocoded)} churches already have coordinates, {len(churches_needing_geocode)} need geocoding")
+        
+        # Geocode churches that need it (by city to minimize API calls)
+        if churches_needing_geocode:
+            logger.info(f"🔍 Geocoding {len(churches_needing_geocode)} churches...")
+            
+            # Group by city for efficient geocoding
+            cities_to_geocode = {}
+            for church in churches_needing_geocode:
+                if church.get('city') and church.get('state'):
+                    city_key = f"{church['city']}, {church['state']}"
+                    if city_key not in cities_to_geocode:
+                        cities_to_geocode[city_key] = []
+                    cities_to_geocode[city_key].append(church)
+            
+            logger.info(f"   Geocoding {len(cities_to_geocode)} unique cities...")
+            
+            processed = 0
+            for city_key, city_churches in cities_to_geocode.items():
+                processed += 1
+                if processed % 20 == 0:
+                    logger.info(f"   Geocoded {processed}/{len(cities_to_geocode)} cities...")
+                
+                # Check city cache first
+                coords = None
+                if self.use_cache:
+                    coords = self.cache.get_geocode(city_key)
+                
+                # If not cached, geocode it
+                if not coords:
+                    try:
+                        location = geolocator.geocode(city_key, timeout=10)
+                        if location:
+                            coords = (location.latitude, location.longitude)
+                            if self.use_cache:
+                                self.cache.set_geocode(city_key, coords[0], coords[1])
+                    except Exception as e:
+                        logger.debug(f"Could not geocode {city_key}: {e}")
+                        continue
+                
+                # Apply coords to all churches in this city AND cache each church
+                if coords:
+                    for church in city_churches:
+                        church['latitude'] = coords[0]
+                        church['longitude'] = coords[1]
+                        churches_already_geocoded.append(church)
+                        
+                        # Cache this specific church's coordinates
+                        if self.use_cache:
+                            church_key = f"{church.get('name', '')}, {church.get('state', '')}"
+                            self.cache.set_geocode(church_key, coords[0], coords[1])
+        
+        # Save cache AND update the state cache with coordinates
+        if self.use_cache:
+            self.cache._save_cache()
+            # Update state cache so next time churches already have coordinates
+            self.cache.set_churches_for_state(state, churches_already_geocoded)
+        
+        # Now filter by distance using ALL geocoded churches
+        logger.info(f"📏 Filtering {len(churches_already_geocoded)} geocoded churches by {radius_miles} mile radius...")
+        
+        churches_in_radius = []
+        user_coords = (user_lat, user_lon)
+        
+        for church in churches_already_geocoded:
+            if church.get('latitude') and church.get('longitude'):
+                church_coords = (church['latitude'], church['longitude'])
+                distance = geodesic(user_coords, church_coords).miles
+                
+                if distance <= radius_miles:
+                    church['distance_miles'] = round(distance, 1)
+                    churches_in_radius.append(church)
+        
+        logger.info(f"✅ Found {len(churches_in_radius)} churches within {radius_miles} miles")
+        
+        return churches_in_radius
+    
     def discover_churches_by_location(self, state: str = None, city: str = None, 
                                       country: str = 'USA') -> List[Dict]:
         """Discover churches filtered by location"""
@@ -165,8 +296,8 @@ class ChurchDirectoryScraper:
                     if not church_name or len(church_name) < 3:
                         continue
                     
-                    # Extract city from name if present
-                    city_match = re.search(r',\s*([^,]+)$', church_name)
+                    # Extract city from name (format: "Church Name - City" or "Church Name [City]")
+                    city_match = re.search(r'[-\[]([^-\]]+)[\]]?$', church_name)
                     city = city_match.group(1).strip() if city_match else None
                     
                     # Get detail page for website URL and social media
@@ -190,6 +321,67 @@ class ChurchDirectoryScraper:
                 
                 if i + batch_size < len(links):
                     logger.info(f"Processed {i + batch_size}/{len(links)} churches...")
+                    
+        except Exception as e:
+            logger.error(f"Error scraping NIHOV state page for {state}: {e}")
+        
+        return churches
+    
+    def _scrape_nihov_by_state_lightweight(self, state: str) -> List[Dict]:
+        """
+        OPTIMIZED: Scrape NIHOV for church names and cities ONLY (no website URLs yet)
+        This is much faster - we'll fetch URLs only for churches within radius
+        """
+        churches = []
+        
+        try:
+            state_name = self._get_state_name(state)
+            
+            if not state_name:
+                logger.warning(f"Unknown state code: {state}")
+                return churches
+            
+            url = f"https://directory.nihov.org/church/usa/{state_name.lower()}"
+            logger.info(f"📋 Fetching church list for {state_name}...")
+            
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            links = soup.find_all('a', href=re.compile(r'/church/\d+'))
+            
+            # Deduplicate by href
+            seen_hrefs = set()
+            unique_links = []
+            for link in links:
+                href = link['href']
+                if href not in seen_hrefs:
+                    seen_hrefs.add(href)
+                    unique_links.append(link)
+            
+            logger.info(f"Found {len(unique_links)} unique churches in {state_name}")
+            
+            for link in unique_links:
+                church_name = link.get_text().strip()
+                
+                if not church_name or len(church_name) < 3:
+                    continue
+                
+                # Extract city from name (format: "Church Name - City" or "Church Name [City]")
+                city_match = re.search(r'[-\[]([^-\]]+)[\]]?$', church_name)
+                city = city_match.group(1).strip() if city_match else None
+                
+                detail_url = 'https://directory.nihov.org' + link['href']
+                
+                church = {
+                    'name': church_name,
+                    'directory_url': detail_url,
+                    'source': 'NIHOV Directory',
+                    'city': city,
+                    'state': state.upper(),
+                    'country': 'USA'
+                }
+                churches.append(church)
                     
         except Exception as e:
             logger.error(f"Error scraping NIHOV state page for {state}: {e}")

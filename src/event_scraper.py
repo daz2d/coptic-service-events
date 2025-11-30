@@ -67,7 +67,8 @@ class EventScraper:
     
     def _discover_via_diocese(self, lat: float, lon: float, radius: float, location_name: str) -> List[ServiceEvent]:
         """
-        Diocese-first discovery strategy using global church directory
+        OPTIMIZED: Diocese-first discovery strategy using global church directory
+        Filters by radius BEFORE fetching website URLs
         """
         events = []
         
@@ -83,32 +84,36 @@ class EventScraper:
             if len(parts) >= 2:
                 state = parts[1].strip().upper()
         
-        logger.info(f"🌍 Using global Coptic church directory")
+        logger.info(f"🌍 Using optimized church discovery (radius-first filtering)")
         
-        # Discover all churches (or filter by state if known)
+        # OPTIMIZATION: Use new method that filters by radius BEFORE fetching URLs
         if state:
-            churches_list = directory_scraper.discover_churches_by_location(state=state, country='USA')
-            logger.info(f"📋 Found {len(churches_list)} churches in {state}")
+            churches = directory_scraper.discover_churches_by_radius(
+                lat, lon, radius, state=state
+            )
         else:
+            # Fallback to old method for non-US locations
             churches_list = directory_scraper.discover_all_churches()
             logger.info(f"📋 Found {len(churches_list)} churches globally")
-        
-        # Convert to our church format
-        churches = []
-        for church_data in churches_list:
-            church = {
-                'name': church_data['name'],
-                'url': church_data.get('url'),
-                'city': church_data.get('city'),
-                'state': church_data.get('state'),
-                'diocese': f"{church_data.get('state')} Region" if church_data.get('state') else 'Unknown'
-            }
-            churches.append(church)
-        
-        # Filter by distance
-        churches = self.diocese_scraper.filter_churches_by_distance(
-            churches, lat, lon, radius
-        )
+            
+            # Convert to our church format
+            churches = []
+            for church_data in churches_list:
+                church = {
+                    'name': church_data['name'],
+                    'url': church_data.get('url'),
+                    'city': church_data.get('city'),
+                    'state': church_data.get('state'),
+                    'latitude': church_data.get('latitude'),
+                    'longitude': church_data.get('longitude'),
+                    'diocese': f"{church_data.get('state')} Region" if church_data.get('state') else 'Unknown'
+                }
+                churches.append(church)
+            
+            # Filter by distance
+            churches = self.diocese_scraper.filter_churches_by_distance(
+                churches, lat, lon, radius
+            )
         
         logger.info(f"📍 {len(churches)} churches within {radius} miles")
         

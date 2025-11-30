@@ -98,15 +98,15 @@ class CopticEventsBot:
             return
         
         for i, event in enumerate(events, 1):
-            print(f"{i}. {event['title']}")
-            print(f"   Church: {event['church_name']}")
-            print(f"   Date: {event['date']} at {event['time']}")
-            print(f"   Location: {event['location']}")
-            print(f"   Type: {event['event_type']}")
-            if event.get('description'):
-                print(f"   Description: {event['description'][:100]}...")
-            if event.get('registration_link'):
-                print(f"   Register: {event['registration_link']}")
+            print(f"{i}. {event.title}")
+            print(f"   Church: {event.church_name}")
+            print(f"   Date: {event.date} at {event.time}")
+            print(f"   Location: {event.location}")
+            print(f"   Type: {event.event_type}")
+            if event.description:
+                print(f"   Description: {event.description[:100]}...")
+            if event.registration_link:
+                print(f"   Register: {event.registration_link}")
             print()
 
 
