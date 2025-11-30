@@ -220,8 +220,8 @@ class GlobalChurchDatabase:
                         continue
                     
                     # 2. Must be in USA (not Canada, Mexico, etc)
-                    country_lower = (church_country or '').lower()
-                    if church_country and 'united states' not in country_lower and 'usa' not in country_lower:
+                    country_lower = (church_country or '').lower() if church_country else ''
+                    if country_lower and 'united states' not in country_lower and 'usa' not in country_lower:
                         skipped_wrong_state += 1
                         pbar.write(f"   ⚠️  Skipped {c.name[:50]} - In {church_country}, not USA")
                         continue
