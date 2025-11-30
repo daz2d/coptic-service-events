@@ -129,8 +129,10 @@ class ChurchEventScraper:
             
             # Extract date and time
             date_str, time_str = self._extract_date_time(container)
-            if not date_str or not time_str:
-                return None  # Skip events without date/time
+            if not date_str:
+                date_str = "TBD"  # Mark as To Be Determined instead of skipping
+            if not time_str:
+                time_str = "TBD"
             
             # Extract description
             description = self._extract_description(container)
@@ -219,10 +221,71 @@ class ChurchEventScraper:
         return None, None
     
     def _parse_datetime_from_text(self, text: str) -> tuple:
-        """Extract date/time from free text"""
-        # TODO: Implement more sophisticated date/time extraction
-        # For now, return None to skip events without clear date/time
-        return None, None
+        """Extract date/time from free text using regex"""
+        import re
+        from datetime import datetime
+        
+        # Look for common date patterns
+        date_patterns = [
+            # December 1, 2024 or Dec 1, 2024
+            (r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s+(\d{4})', '%B %d %Y'),
+            # 12/01/2024 or 12-01-2024
+            (r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', '%m/%d/%Y'),
+            # 2024-12-01
+            (r'(\d{4})-(\d{1,2})-(\d{1,2})', '%Y-%m-%d'),
+        ]
+        
+        # Look for common time patterns
+        time_patterns = [
+            # 2:00 PM, 2:00pm, 14:00
+            r'(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?',
+            # 2pm, 2 pm
+            r'(\d{1,2})\s*(AM|PM|am|pm)',
+        ]
+        
+        date_str = None
+        time_str = None
+        
+        # Try to find date
+        for pattern, fmt_template in date_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    date_text = match.group(0)
+                    # Try to parse it
+                    for fmt in [fmt_template, fmt_template.replace('%B', '%b')]:
+                        try:
+                            dt = datetime.strptime(date_text, fmt)
+                            date_str = dt.strftime('%Y-%m-%d')
+                            break
+                        except:
+                            continue
+                    if date_str:
+                        break
+                except:
+                    continue
+        
+        # Try to find time
+        for pattern in time_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    hour = int(match.group(1))
+                    minute = int(match.group(2)) if len(match.groups()) > 1 and match.group(2).isdigit() else 0
+                    meridiem = match.group(3) if len(match.groups()) > 2 else None
+                    
+                    # Convert to 24-hour format
+                    if meridiem and meridiem.upper() == 'PM' and hour != 12:
+                        hour += 12
+                    elif meridiem and meridiem.upper() == 'AM' and hour == 12:
+                        hour = 0
+                    
+                    time_str = f"{hour:02d}:{minute:02d}"
+                    break
+                except:
+                    continue
+        
+        return date_str, time_str
     
     def _extract_description(self, container) -> str:
         """Extract event description"""
