@@ -233,6 +233,11 @@ class GlobalChurchDatabase:
                         continue
                     
                     # 4. Verify it's actually Coptic Orthodox (not other Orthodox)
+                    if not c.name:
+                        skipped_not_coptic += 1
+                        pbar.write(f"   ⚠️  Skipped church with no name")
+                        continue
+                    
                     name_lower = c.name.lower()
                     if 'coptic' not in name_lower:
                         # If 'coptic' not in name, it might be Greek/Russian/Antiochian Orthodox
