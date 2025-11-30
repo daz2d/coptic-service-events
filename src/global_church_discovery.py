@@ -7,9 +7,10 @@ Stores in local database for instant, free queries forever
 import os
 import logging
 import time
-from typing import List
+from typing import List, Set, Tuple
 from dotenv import load_dotenv
 from tqdm import tqdm
+from difflib import SequenceMatcher
 
 from src.google_places_discovery import GooglePlacesChurchDiscovery, GooglePlaceChurch
 
@@ -42,6 +43,75 @@ class GlobalChurchDatabase:
     def __init__(self, api_key: str = None):
         self.discovery = GooglePlacesChurchDiscovery(api_key)
         self.all_churches = []
+        self.seen_signatures = {}  # (name, city, state) -> church for smart dedup
+    
+    def _normalize_church_name(self, name: str) -> str:
+        """Normalize church name for comparison"""
+        name = name.lower()
+        # Remove common variations
+        replacements = {
+            'saint': 'st',
+            'st.': 'st',
+            '&': 'and',
+            'coptic orthodox church': '',
+            'coptic orthodox': '',
+            'coptic church': '',
+            'church': '',
+        }
+        for old, new in replacements.items():
+            name = name.replace(old, new)
+        # Remove extra spaces
+        name = ' '.join(name.split())
+        return name.strip()
+    
+    def _is_duplicate(self, church: GooglePlaceChurch, seen_place_ids: Set[str]) -> Tuple[bool, str]:
+        """
+        Smart duplicate detection using multiple factors
+        
+        Returns:
+            (is_duplicate, reason)
+        """
+        # 1. Exact place_id match (Google's unique identifier)
+        if church.place_id in seen_place_ids:
+            return True, "same place_id"
+        
+        # 2. Create unique signature: normalized name + city + state
+        # This allows "St Mary" in NY and "St Mary" in CA to coexist
+        norm_name = self._normalize_church_name(church.name)
+        city = getattr(church, 'city', '').lower().strip()
+        state = getattr(church, 'state', '').upper().strip()
+        
+        signature = (norm_name, city, state)
+        
+        # Check if we've seen this exact church (name+city+state)
+        if signature in self.seen_signatures:
+            existing = self.seen_signatures[signature]
+            # Same church, just found in another search
+            # Verify it's really a duplicate by comparing addresses
+            existing_addr = getattr(existing, 'address', '').lower()
+            new_addr = getattr(church, 'address', '').lower()
+            
+            # If addresses are very similar, it's definitely a duplicate
+            if existing_addr and new_addr:
+                # Compare street addresses (ignore zip codes)
+                existing_street = existing_addr.split(',')[0] if ',' in existing_addr else existing_addr
+                new_street = new_addr.split(',')[0] if ',' in new_addr else new_addr
+                
+                if existing_street == new_street:
+                    return True, f"duplicate in {city}, {state}"
+        
+        return False, ""
+    
+    def _record_church(self, church: GooglePlaceChurch, seen_place_ids: Set[str]):
+        """Record church in tracking structures"""
+        seen_place_ids.add(church.place_id)
+        
+        norm_name = self._normalize_church_name(church.name)
+        city = getattr(church, 'city', '').lower().strip()
+        state = getattr(church, 'state', '').upper().strip()
+        signature = (norm_name, city, state)
+        
+        self.seen_signatures[signature] = church
     
     def discover_all_churches(self, max_per_region: int = 100) -> List[GooglePlaceChurch]:
         """
@@ -83,13 +153,20 @@ class GlobalChurchDatabase:
                     # International - use text search
                     churches = self._search_country(region_name, max_per_region)
                 
-                # Deduplicate by place_id AND validate location
+                # Smart deduplication with validation
                 new_churches = []
                 skipped_wrong_state = 0
                 skipped_no_state = 0
+                skipped_duplicate = 0
+                skipped_not_coptic = 0
                 
                 for c in churches:
-                    if c.place_id in seen_place_ids:
+                    # SMART DUPLICATE CHECK
+                    is_dup, dup_reason = self._is_duplicate(c, seen_place_ids)
+                    if is_dup:
+                        skipped_duplicate += 1
+                        if skipped_duplicate <= 3:  # Only show first few
+                            pbar.write(f"   🔄 Skipped duplicate: {c.name[:40]} ({dup_reason})")
                         continue
                     
                     # Get church location data
@@ -120,26 +197,46 @@ class GlobalChurchDatabase:
                     if 'coptic' not in name_lower:
                         # If 'coptic' not in name, it might be Greek/Russian/Antiochian Orthodox
                         if 'greek' in name_lower or 'russian' in name_lower or 'antioch' in name_lower or 'serbian' in name_lower:
+                            skipped_not_coptic += 1
                             pbar.write(f"   ⚠️  Skipped {c.name[:50]} - Not Coptic Orthodox")
                             continue
                     
-                    # PASSED ALL VALIDATIONS
-                    seen_place_ids.add(c.place_id)
+                    # PASSED ALL VALIDATIONS - Record this church
+                    self._record_church(c, seen_place_ids)
                     new_churches.append(c)
                     self.all_churches.append(c)
                 
                 total_found += len(new_churches)
+                total_skipped = skipped_duplicate + skipped_wrong_state + skipped_no_state + skipped_not_coptic
                 
                 # Enhanced progress output with validation stats
                 if new_churches:
                     avg_rating = sum(c.rating for c in new_churches if c.rating) / len([c for c in new_churches if c.rating]) if any(c.rating for c in new_churches) else 0
                     pbar.write(f"   ✅ {region_name}: {len(new_churches)} churches (avg {avg_rating:.1f}★) | Total: {total_found}")
-                    if skipped_wrong_state > 0 or skipped_no_state > 0:
-                        pbar.write(f"      (Skipped: {skipped_wrong_state} wrong state, {skipped_no_state} no state)")
+                    if total_skipped > 0:
+                        skip_details = []
+                        if skipped_duplicate > 0:
+                            skip_details.append(f"{skipped_duplicate} dupes")
+                        if skipped_wrong_state > 0:
+                            skip_details.append(f"{skipped_wrong_state} wrong state")
+                        if skipped_no_state > 0:
+                            skip_details.append(f"{skipped_no_state} no state")
+                        if skipped_not_coptic > 0:
+                            skip_details.append(f"{skipped_not_coptic} not Coptic")
+                        pbar.write(f"      (Skipped: {', '.join(skip_details)})")
                 else:
                     pbar.write(f"   ⚪ {region_name}: No churches found")
-                    if skipped_wrong_state > 0 or skipped_no_state > 0:
-                        pbar.write(f"      (Found {len(churches)} but all invalid: {skipped_wrong_state} wrong state, {skipped_no_state} no state)")
+                    if total_skipped > 0:
+                        skip_details = []
+                        if skipped_duplicate > 0:
+                            skip_details.append(f"{skipped_duplicate} dupes")
+                        if skipped_wrong_state > 0:
+                            skip_details.append(f"{skipped_wrong_state} wrong state")
+                        if skipped_no_state > 0:
+                            skip_details.append(f"{skipped_no_state} no state")
+                        if skipped_not_coptic > 0:
+                            skip_details.append(f"{skipped_not_coptic} not Coptic")
+                        pbar.write(f"      (Found {len(churches)} but all invalid: {', '.join(skip_details)})")
                 
                 pbar.set_postfix({
                     'found': len(new_churches),
@@ -161,16 +258,55 @@ class GlobalChurchDatabase:
         
         pbar.close()
         
+        # POST-PROCESSING: Final cleanup
+        logger.info(f"\n🔍 Running post-processing cleanup...")
+        cleaned_churches = self._post_process_cleanup(self.all_churches)
+        
         logger.info(f"\n" + "="*80)
         logger.info(f"🎉 DISCOVERY COMPLETE!")
         logger.info(f"="*80)
-        logger.info(f"   Total churches found: {len(self.all_churches)}")
+        logger.info(f"   Total churches found: {len(cleaned_churches)}")
         logger.info(f"   Unique place IDs: {len(seen_place_ids)}")
         logger.info(f"   Regions searched: {len(self.REGIONS)}")
-        logger.info(f"   Average per region: {len(self.all_churches) / len(self.REGIONS):.1f}")
+        logger.info(f"   Average per region: {len(cleaned_churches) / len(self.REGIONS):.1f}")
+        logger.info(f"   Signatures tracked: {len(self.seen_signatures)}")
         logger.info(f"="*80 + "\n")
         
-        return self.all_churches
+        return cleaned_churches
+    
+    def _post_process_cleanup(self, churches: List[GooglePlaceChurch]) -> List[GooglePlaceChurch]:
+        """
+        Final cleanup pass to ensure data quality
+        - Remove any remaining duplicates
+        - Validate all required fields
+        - Sort by state and city
+        """
+        logger.info(f"   Pre-cleanup count: {len(churches)}")
+        
+        # Track by place_id (ultimate source of truth)
+        unique = {}
+        duplicates_removed = 0
+        
+        for church in churches:
+            if church.place_id in unique:
+                duplicates_removed += 1
+                continue
+            unique[church.place_id] = church
+        
+        cleaned = list(unique.values())
+        
+        # Sort by state, then city, then name
+        cleaned.sort(key=lambda c: (
+            getattr(c, 'state', 'ZZ'),
+            getattr(c, 'city', 'Unknown'),
+            c.name
+        ))
+        
+        logger.info(f"   Post-cleanup count: {len(cleaned)}")
+        if duplicates_removed > 0:
+            logger.info(f"   Removed {duplicates_removed} duplicates in post-processing")
+        
+        return cleaned
     
     def _search_country(self, country_name: str, max_results: int) -> List[GooglePlaceChurch]:
         """Search for churches in a country using text search"""

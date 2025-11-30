@@ -106,12 +106,25 @@ def validate_database(db_path='coptic_events.db'):
             WHERE state IS NOT NULL
             GROUP BY state, name
             HAVING count > 1
+            ORDER BY count DESC
         """)
         duplicates = cursor.fetchall()
         if duplicates:
             issues.append(f"   {len(duplicates)} potential duplicate church names")
+            issues.append(f"      (These may be legitimate - e.g., same name, different cities)")
             for state, name, count in duplicates[:5]:
-                issues.append(f"      - {state}: '{name}' ({count} times)")
+                # Get cities for these duplicates
+                cursor.execute("""
+                    SELECT city, address 
+                    FROM google_places_churches 
+                    WHERE state = ? AND name = ?
+                    LIMIT 3
+                """, (state, name))
+                cities = cursor.fetchall()
+                city_list = [f"{city} ({addr[:30]}...)" if addr else city for city, addr in cities]
+                issues.append(f"      - {state}: '{name}' ({count}x) in {', '.join(city_list[:2])}")
+                if len(city_list) > 2:
+                    issues.append(f"        ... and {len(city_list) - 2} more locations")
         
         if issues:
             for issue in issues:
