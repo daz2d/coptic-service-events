@@ -227,7 +227,7 @@ class GlobalChurchDatabase:
                         continue
                     
                     # 3. State code must match expected state
-                    if church_state.upper() != code.upper():
+                    if church_state and church_state.upper() != code.upper():
                         skipped_wrong_state += 1
                         pbar.write(f"   ⚠️  Skipped {c.name[:50]} - In {church_state}, expected {code}")
                         continue
