@@ -1,0 +1,91 @@
+{
+  "location": {
+    "zip_code": "07066",
+    "use_current_location": false,
+    "radius_miles": 10,
+    "include_diocese_events": true,
+    "nationwide_for_mission_trips": true
+  },
+  "google_calendar": {
+    "enabled": true,
+    "calendar_name": "Coptic Service Events",
+    "auto_add_events": true,
+    "reminder_minutes": [1440, 60]
+  },
+  "event_preferences": {
+    "include_service_events": true,
+    "include_mission_trips": true,
+    "include_social_events": true,
+    "event_types": [
+      "food_pantry",
+      "homeless_outreach",
+      "hospital_visits",
+      "nursing_home",
+      "youth_service",
+      "mission_trips_domestic",
+      "mission_trips_international",
+      "community_service",
+      "charity_events",
+      "festival",
+      "social_gathering",
+      "retreat",
+      "conference",
+      "sports_event",
+      "cultural_event",
+      "family_event"
+    ],
+    "distance_rules": {
+      "mission_trips": "nationwide",
+      "service_events": "local_only",
+      "social_events": "local_only"
+    },
+    "mission_trip_settings": {
+      "min_advance_notice_days": 30,
+      "include_domestic": true,
+      "include_international": true,
+      "max_duration_days": null,
+      "destinations": []
+    },
+    "local_event_settings": {
+      "max_radius_miles": 10,
+      "same_day_events": false,
+      "min_advance_notice_days": 0
+    }
+  },
+  "notifications": {
+    "enabled": true,
+    "email": "",
+    "frequency": "weekly",
+    "new_event_alerts": true,
+    "deadline_alerts": true,
+    "days_before_deadline": 3
+  },
+  "scraping": {
+    "schedule": "daily",
+    "run_time": "08:00",
+    "user_agent": "CopticServiceEventsBot/1.0"
+  },
+  "data_sources": {
+    "diocese_directory": {
+      "enabled": false,
+      "auto_detect": true,
+      "manual_dioceses": []
+    },
+    "diocese_websites": {
+      "southern_usa": "https://suscopts.org"
+    },
+    "church_websites": [
+      "https://stmarknj.org",
+      "https://stmarkjerseycity.org"
+    ],
+    "facebook_pages": [],
+    "instagram_accounts": []
+  },
+  "scraping_strategy": {
+    "start_with_diocese": true,
+    "discover_churches": true,
+    "multi_threaded": true,
+    "max_workers": 10,
+    "timeout_seconds": 30
+  }
+}
