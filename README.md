@@ -5,16 +5,20 @@ Automatically discover **service/volunteer events, mission trips, and social eve
 ## 🚀 Quick Start
 
 ```bash
-# 1. Setup
+# 1. Setup environment
 ./setup.sh
 
-# 2. Configure (edit config.json with your location)
-vim config.json
+# 2. Add your Google Maps API key to .env
+echo "GOOGLE_MAPS_API_KEY='your-key-here'" >> .env
 
-# 3. Run global church discovery (one-time, ~20 minutes)
-./run_global_discovery.sh
+# 3. Build church database (ONE-TIME, ~15-30 min)
+source venv/bin/activate
+python discover_all_us_churches.py
 
-# 4. Find events
+# 4. Configure your location in config.json
+vim config.json  # Set your city/state and radius
+
+# 5. Find events near you
 python main.py
 ```
 
