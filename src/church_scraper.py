@@ -147,6 +147,10 @@ class ChurchEventScraper:
             # Determine event type
             event_type = self._determine_event_type(title, description)
             
+            # Skip church services/masses/liturgies (not service/fellowship events)
+            if event_type.endswith('_skip'):
+                return None
+            
             # Check if it's a mission trip
             is_mission_trip = self._is_mission_trip(title, description)
             
@@ -322,11 +326,24 @@ class ChurchEventScraper:
         """Determine event type from title and description"""
         text = f"{title} {description}".lower()
         
+        # FILTER OUT: Church services/masses/liturgies (not volunteer/service events)
+        liturgy_keywords = [
+            'liturgy', 'divine liturgy', 'mass', 'vespers', 'matins',
+            'agpeya', 'tasbeha', 'praise', 'ابصلموديه', 'tasbeha',
+            'bible study', 'sunday school', 'servants meeting',
+            'deacons', 'altar boys', 'hymns class', 'coptic language',
+            'catechism', 'catechesis', 'orthodox teaching'
+        ]
+        
+        # Skip if it's a church service/class, not a service event
+        if any(keyword in text for keyword in liturgy_keywords):
+            return 'church_service_skip'  # Mark for filtering
+        
         # Mission trips
         if any(word in text for word in ['mission', 'trip', 'pilgrimage']):
             return 'mission_trips_domestic' if 'domestic' in text or any(state in text for state in ['kentucky', 'appalachia', 'mississippi']) else 'mission_trips_international'
         
-        # Service events
+        # Service events (ACTUAL volunteer work)
         if any(word in text for word in ['food', 'pantry', 'hunger', 'feeding']):
             return 'food_pantry'
         if any(word in text for word in ['homeless', 'shelter', 'street']):
@@ -335,26 +352,27 @@ class ChurchEventScraper:
             return 'hospital_visits'
         if any(word in text for word in ['nursing', 'elderly', 'senior']):
             return 'nursing_home'
-        if any(word in text for word in ['volunteer', 'service']):
+        if any(word in text for word in ['volunteer', 'outreach', 'service project', 'community service']):
             return 'community_service'
         
-        # Social events
+        # Fellowship/Social events
+        if any(word in text for word in ['fellowship', 'social', 'gathering', 'potluck', 'dinner', 'bbq', 'picnic']):
+            return 'fellowship'
         if any(word in text for word in ['festival', 'feast', 'celebration']):
             return 'festival'
         if any(word in text for word in ['retreat', 'convention']):
             return 'retreat'
-        if any(word in text for word in ['sports', 'game', 'tournament']):
+        if any(word in text for word in ['sports', 'game', 'tournament', 'basketball', 'soccer']):
             return 'sports_event'
         if any(word in text for word in ['cultural', 'heritage', 'tradition']):
             return 'cultural_event'
-        if any(word in text for word in ['family', 'picnic', 'gathering']):
+        if any(word in text for word in ['family', 'youth group', 'young adult']):
             return 'family_event'
-        if any(word in text for word in ['social', 'party', 'dinner']):
-            return 'social_gathering'
         if any(word in text for word in ['conference', 'seminar', 'workshop']):
             return 'conference'
         
-        return 'social_gathering'  # Default
+        # If we can't determine, it's probably not a service/fellowship event
+        return 'other_skip'  # Mark for filtering
     
     def _is_mission_trip(self, title: str, description: str) -> bool:
         """Check if event is a mission trip"""
