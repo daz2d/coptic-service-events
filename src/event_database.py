@@ -66,6 +66,26 @@ class EventDatabase:
             )
         ''')
         
+        # Churches table for global directory
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS churches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                address TEXT,
+                city TEXT,
+                state TEXT,
+                country TEXT DEFAULT 'USA',
+                website TEXT,
+                phone TEXT,
+                latitude REAL,
+                longitude REAL,
+                place_id TEXT UNIQUE,
+                created_at TEXT,
+                updated_at TEXT,
+                UNIQUE(name, city, state)
+            )
+        ''')
+        
         self.conn.commit()
         logger.info("Database initialized")
     
@@ -142,6 +162,81 @@ class EventDatabase:
             ORDER BY date, time
             LIMIT ?
         ''', (today, days))
+        
+        return cursor.fetchall()
+    
+    def add_church(self, name: str, address: str = None, city: str = None, 
+                   state: str = None, country: str = 'USA', website: str = None,
+                   phone: str = None, latitude: float = None, longitude: float = None,
+                   place_id: str = None) -> int:
+        """Add or update church in database"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        
+        try:
+            cursor.execute('''
+                INSERT INTO churches (
+                    name, address, city, state, country, website, phone,
+                    latitude, longitude, place_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(place_id) DO UPDATE SET
+                    name=excluded.name,
+                    address=excluded.address,
+                    city=excluded.city,
+                    state=excluded.state,
+                    country=excluded.country,
+                    website=excluded.website,
+                    phone=excluded.phone,
+                    latitude=excluded.latitude,
+                    longitude=excluded.longitude,
+                    updated_at=excluded.updated_at
+            ''', (name, address, city, state, country, website, phone,
+                  latitude, longitude, place_id, now, now))
+            
+            self.conn.commit()
+            return cursor.lastrowid
+            
+        except sqlite3.IntegrityError as e:
+            # Handle case where place_id is null but name/city/state duplicate
+            logger.warning(f"Church may already exist: {name} in {city}, {state}")
+            return -1
+    
+    def get_churches_within_radius(self, center_lat: float, center_lon: float, 
+                                   radius_miles: float = 15, state: str = None) -> list:
+        """Get churches within radius of a location"""
+        cursor = self.conn.cursor()
+        
+        # Simple bounding box first (fast filter)
+        # 1 degree latitude ≈ 69 miles
+        # 1 degree longitude ≈ 54 miles (at 40° latitude)
+        lat_delta = radius_miles / 69.0
+        lon_delta = radius_miles / 54.0
+        
+        query = '''
+            SELECT * FROM churches 
+            WHERE latitude BETWEEN ? AND ?
+            AND longitude BETWEEN ? AND ?
+        '''
+        params = [
+            center_lat - lat_delta, center_lat + lat_delta,
+            center_lon - lon_delta, center_lon + lon_delta
+        ]
+        
+        if state:
+            query += ' AND state = ?'
+            params.append(state)
+        
+        cursor.execute(query, params)
+        return cursor.fetchall()
+    
+    def get_all_churches(self, state: str = None) -> list:
+        """Get all churches, optionally filtered by state"""
+        cursor = self.conn.cursor()
+        
+        if state:
+            cursor.execute('SELECT * FROM churches WHERE state = ? ORDER BY name', (state,))
+        else:
+            cursor.execute('SELECT * FROM churches ORDER BY state, name')
         
         return cursor.fetchall()
     

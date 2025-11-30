@@ -302,72 +302,42 @@ class GooglePlacesChurchDiscovery:
     
     def save_to_database(self, churches: List[GooglePlaceChurch], db_path: str = 'coptic_events.db'):
         """
-        Save discovered churches to SQLite database
-        
-        Creates a new table: google_places_churches
+        Save discovered churches to SQLite database using EventDatabase
         """
-        import sqlite3
+        from src.event_database import EventDatabase
         
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        db = EventDatabase(db_path)
+        saved_count = 0
+        error_count = 0
         
-        # Create table with enhanced fields
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS google_places_churches (
-                place_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                address TEXT,
-                latitude REAL,
-                longitude REAL,
-                phone TEXT,
-                website TEXT,
-                email TEXT,
-                rating REAL,
-                user_ratings_total INTEGER,
-                opening_hours TEXT,
-                vicinity TEXT,
-                city TEXT,
-                state TEXT,
-                country TEXT,
-                postal_code TEXT,
-                types TEXT,
-                business_status TEXT,
-                discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        logger.info(f"💾 Saving {len(churches)} churches to database...")
         
-        # Insert churches with enhanced data
         for church in churches:
-            cursor.execute("""
-                INSERT OR REPLACE INTO google_places_churches
-                (place_id, name, address, latitude, longitude, phone, website, 
-                 rating, user_ratings_total, vicinity, city, state, country, 
-                 postal_code, types, business_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                church.place_id,
-                church.name,
-                church.address,
-                church.latitude,
-                church.longitude,
-                church.phone,
-                church.website,
-                church.rating,
-                church.user_ratings_total,
-                church.vicinity,
-                getattr(church, 'city', None),
-                getattr(church, 'state', None),
-                getattr(church, 'country', None),
-                getattr(church, 'postal_code', None),
-                getattr(church, 'types', None),
-                getattr(church, 'business_status', None)
-            ))
+            try:
+                db.add_church(
+                    name=church.name,
+                    address=church.address,
+                    city=getattr(church, 'city', None),
+                    state=getattr(church, 'state', None),
+                    country=getattr(church, 'country', 'USA'),
+                    website=church.website,
+                    phone=church.phone,
+                    latitude=church.latitude,
+                    longitude=church.longitude,
+                    place_id=church.place_id
+                )
+                saved_count += 1
+                
+                if saved_count % 100 == 0:
+                    logger.info(f"   ✓ Saved {saved_count}/{len(churches)} churches...")
+                    
+            except Exception as e:
+                error_count += 1
+                if error_count <= 5:  # Only show first few errors
+                    logger.error(f"   ❌ Failed to save {church.name}: {e}")
         
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"💾 Saved {len(churches)} churches to database")
+        logger.info(f"✅ Saved {saved_count} churches ({error_count} errors)")
+        return saved_count
 
 
 if __name__ == "__main__":

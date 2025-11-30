@@ -84,7 +84,7 @@ class ComprehensiveDiscovery:
         logger.info(f"✅ {state_code}: Found {len(churches_list)} total unique churches")
         return churches_list
     
-    def _paginated_search(self, query: str, max_pages: int = 3) -> List[Dict]:
+    def _paginated_search(self, query: str, max_pages: int = 5) -> List[Dict]:
         """Search with FULL pagination support"""
         all_results = []
         next_page_token = None
