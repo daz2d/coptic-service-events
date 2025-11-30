@@ -74,6 +74,8 @@ class GlobalChurchDatabase:
     
     def _normalize_church_name(self, name: str) -> str:
         """Normalize church name for comparison"""
+        if not name:
+            return ''
         name = name.lower()
         # Remove common variations
         replacements = {
