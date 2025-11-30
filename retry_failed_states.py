@@ -19,7 +19,7 @@ import requests
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from google_places_discovery import GooglePlacesDiscovery
+from src.google_places_discovery import GooglePlacesChurchDiscovery
 
 # Setup logging
 logging.basicConfig(
@@ -45,7 +45,7 @@ class ComprehensiveDiscovery:
         if not self.api_key:
             raise ValueError("GOOGLE_MAPS_API_KEY not found")
         
-        self.discovery = GooglePlacesDiscovery(self.api_key)
+        self.discovery = GooglePlacesChurchDiscovery(self.api_key)
         
     def search_state_thoroughly(self, state_code: str) -> List[Dict]:
         """Use multiple search strategies with full pagination"""
@@ -118,9 +118,14 @@ class ComprehensiveDiscovery:
                 logger.info(f"    📄 Page {page}: {len(results)} results")
                 
                 for place in results:
-                    church_data = self.discovery._extract_place_data(place)
-                    if church_data:
-                        all_results.append(church_data)
+                    place_id = place.get('place_id')
+                    if place_id:
+                        details = self.discovery._get_place_details(place_id)
+                        if details:
+                            church_data = self.discovery._parse_church_data(details)
+                            if church_data:
+                                all_results.append(church_data)
+                        time.sleep(0.2)
                 
                 next_page_token = data.get('next_page_token')
                 if not next_page_token:
