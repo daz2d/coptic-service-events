@@ -10,6 +10,13 @@ import time
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if using system env vars
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,12 +49,13 @@ class GooglePlacesChurchDiscovery:
         
         Enable: Places API (New)
         """
-        self.api_key = api_key or os.getenv('GOOGLE_PLACES_API_KEY')
+        # Try multiple environment variable names
+        self.api_key = api_key or os.getenv('GOOGLE_PLACES_API_KEY') or os.getenv('GOOGLE_MAPS_API_KEY')
         
         if not self.api_key:
             raise ValueError(
-                "Google Places API key required. Set GOOGLE_PLACES_API_KEY environment variable "
-                "or pass api_key parameter. Get one at: "
+                "Google Places API key required. Set GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY "
+                "environment variable or pass api_key parameter. Get one at: "
                 "https://console.cloud.google.com/google/maps-apis/credentials"
             )
         
@@ -333,16 +341,16 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Check for API key
-    api_key = os.getenv('GOOGLE_PLACES_API_KEY')
+    # Check for API key (try multiple names)
+    api_key = os.getenv('GOOGLE_PLACES_API_KEY') or os.getenv('GOOGLE_MAPS_API_KEY')
     
     if not api_key:
-        print("\n❌ ERROR: GOOGLE_PLACES_API_KEY environment variable not set")
+        print("\n❌ ERROR: Google Maps API key not found in environment")
         print("\n📝 To get your API key:")
         print("1. Go to: https://console.cloud.google.com/google/maps-apis/credentials")
         print("2. Create a new API key")
         print("3. Enable 'Places API (New)'")
-        print("4. Set environment variable: export GOOGLE_PLACES_API_KEY='your-key'")
+        print("4. Add to .env file: GOOGLE_MAPS_API_KEY='your-key'")
         print("\n💰 Pricing: $200 free credit/month (6,000 searches)")
         print("   For NJ churches: ~60 searches = FREE\n")
         exit(1)
