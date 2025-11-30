@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 class GlobalChurchDatabase:
     """Build and manage global Coptic Orthodox church database"""
     
-    # COMPREHENSIVE GLOBAL REGIONS - All Coptic Orthodox churches worldwide
+    # US-ONLY REGIONS - All 50 States + DC
+    # Focused scope for accuracy and manageable API costs
     REGIONS = [
-        # ========== UNITED STATES (All 50 States) ==========
+        # ========== UNITED STATES (All 50 States + DC) ==========
         ('AL', 'Alabama'), ('AK', 'Alaska'), ('AZ', 'Arizona'), ('AR', 'Arkansas'),
         ('CA', 'California'), ('CO', 'Colorado'), ('CT', 'Connecticut'), ('DE', 'Delaware'),
         ('FL', 'Florida'), ('GA', 'Georgia'), ('HI', 'Hawaii'), ('ID', 'Idaho'),
@@ -35,49 +36,7 @@ class GlobalChurchDatabase:
         ('OR', 'Oregon'), ('PA', 'Pennsylvania'), ('RI', 'Rhode Island'), ('SC', 'South Carolina'),
         ('SD', 'South Dakota'), ('TN', 'Tennessee'), ('TX', 'Texas'), ('UT', 'Utah'),
         ('VT', 'Vermont'), ('VA', 'Virginia'), ('WA', 'Washington'), ('WV', 'West Virginia'),
-        ('WI', 'Wisconsin'), ('WY', 'Wyoming'),
-        
-        # ========== CANADA (All Provinces & Territories) ==========
-        ('AB', 'Alberta, Canada'), ('BC', 'British Columbia, Canada'),
-        ('MB', 'Manitoba, Canada'), ('NB', 'New Brunswick, Canada'),
-        ('NL', 'Newfoundland and Labrador, Canada'), ('NS', 'Nova Scotia, Canada'),
-        ('ON', 'Ontario, Canada'), ('PE', 'Prince Edward Island, Canada'),
-        ('QC', 'Quebec, Canada'), ('SK', 'Saskatchewan, Canada'),
-        
-        # ========== MIDDLE EAST (Coptic heartland) ==========
-        ('EG', 'Egypt'), ('JO', 'Jordan'), ('LB', 'Lebanon'), ('PS', 'Palestine'),
-        ('IL', 'Israel'), ('UAE', 'United Arab Emirates'), ('KW', 'Kuwait'),
-        ('SA', 'Saudi Arabia'), ('QA', 'Qatar'), ('BH', 'Bahrain'), ('OM', 'Oman'),
-        ('IQ', 'Iraq'), ('SY', 'Syria'), ('YE', 'Yemen'),
-        
-        # ========== EUROPE ==========
-        ('GB', 'United Kingdom'), ('IE', 'Ireland'), ('FR', 'France'), ('DE', 'Germany'),
-        ('IT', 'Italy'), ('ES', 'Spain'), ('PT', 'Portugal'), ('NL', 'Netherlands'),
-        ('BE', 'Belgium'), ('CH', 'Switzerland'), ('AT', 'Austria'), ('GR', 'Greece'),
-        ('SE', 'Sweden'), ('NO', 'Norway'), ('DK', 'Denmark'), ('FI', 'Finland'),
-        ('PL', 'Poland'), ('CZ', 'Czech Republic'), ('HU', 'Hungary'), ('RO', 'Romania'),
-        ('BG', 'Bulgaria'), ('RS', 'Serbia'), ('HR', 'Croatia'), ('SI', 'Slovenia'),
-        
-        # ========== AFRICA ==========
-        ('KE', 'Kenya'), ('UG', 'Uganda'), ('TZ', 'Tanzania'), ('ET', 'Ethiopia'),
-        ('SD', 'Sudan'), ('SS', 'South Sudan'), ('ZA', 'South Africa'), ('ZW', 'Zimbabwe'),
-        ('BW', 'Botswana'), ('NA', 'Namibia'), ('ZM', 'Zambia'), ('MW', 'Malawi'),
-        ('GH', 'Ghana'), ('NG', 'Nigeria'), ('CI', 'Ivory Coast'), ('SN', 'Senegal'),
-        
-        # ========== OCEANIA ==========
-        ('AU-NSW', 'New South Wales, Australia'), ('AU-VIC', 'Victoria, Australia'),
-        ('AU-QLD', 'Queensland, Australia'), ('AU-WA', 'Western Australia'),
-        ('AU-SA', 'South Australia'), ('NZ', 'New Zealand'),
-        
-        # ========== ASIA ==========
-        ('JP', 'Japan'), ('KR', 'South Korea'), ('CN', 'China'), ('HK', 'Hong Kong'),
-        ('SG', 'Singapore'), ('MY', 'Malaysia'), ('TH', 'Thailand'), ('PH', 'Philippines'),
-        ('IN', 'India'), ('PK', 'Pakistan'), ('BD', 'Bangladesh'),
-        
-        # ========== SOUTH & CENTRAL AMERICA ==========
-        ('BR', 'Brazil'), ('AR', 'Argentina'), ('CL', 'Chile'), ('CO', 'Colombia'),
-        ('PE', 'Peru'), ('VE', 'Venezuela'), ('MX', 'Mexico'), ('PA', 'Panama'),
-        ('CR', 'Costa Rica'), ('GT', 'Guatemala'),
+        ('WI', 'Wisconsin'), ('WY', 'Wyoming'), ('DC', 'Washington DC'),
     ]
     
     def __init__(self, api_key: str = None):
@@ -126,6 +85,9 @@ class GlobalChurchDatabase:
                 
                 # Deduplicate by place_id AND validate location
                 new_churches = []
+                skipped_wrong_state = 0
+                skipped_no_state = 0
+                
                 for c in churches:
                     if c.place_id in seen_place_ids:
                         continue
@@ -134,78 +96,50 @@ class GlobalChurchDatabase:
                     church_state = getattr(c, 'state', None)
                     church_country = getattr(c, 'country', None)
                     
-                    # CRITICAL: Validate church is actually in this state/region
-                    valid = False
+                    # STRICT US-ONLY VALIDATION
+                    # 1. Must have a state
+                    if not church_state:
+                        skipped_no_state += 1
+                        pbar.write(f"   ⚠️  Skipped {c.name[:50]} - No state info")
+                        continue
                     
-                    # US States (50 states)
-                    us_states = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
-                                'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
-                                'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-                                'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-                                'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY']
+                    # 2. Must be in USA (not Canada, Mexico, etc)
+                    if church_country and 'united states' not in church_country.lower() and 'usa' not in church_country.lower():
+                        skipped_wrong_state += 1
+                        pbar.write(f"   ⚠️  Skipped {c.name[:50]} - In {church_country}, not USA")
+                        continue
                     
-                    if code in us_states:
-                        # US state - verify state matches
-                        if church_state and church_state.upper() == code.upper():
-                            valid = True
+                    # 3. State code must match expected state
+                    if church_state.upper() != code.upper():
+                        skipped_wrong_state += 1
+                        pbar.write(f"   ⚠️  Skipped {c.name[:50]} - In {church_state}, expected {code}")
+                        continue
                     
-                    # Canadian Provinces
-                    elif code in ['AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'ON', 'PE', 'QC', 'SK']:
-                        # Canada - verify country is Canada
-                        if church_country and 'Canada' in church_country:
-                            valid = True
+                    # 4. Verify it's actually Coptic Orthodox (not other Orthodox)
+                    name_lower = c.name.lower()
+                    if 'coptic' not in name_lower:
+                        # If 'coptic' not in name, it might be Greek/Russian/Antiochian Orthodox
+                        if 'greek' in name_lower or 'russian' in name_lower or 'antioch' in name_lower or 'serbian' in name_lower:
+                            pbar.write(f"   ⚠️  Skipped {c.name[:50]} - Not Coptic Orthodox")
+                            continue
                     
-                    # Australian states
-                    elif code.startswith('AU-'):
-                        if church_country and 'Australia' in church_country:
-                            valid = True
-                    
-                    # Country codes (2-letter ISO)
-                    else:
-                        # International - verify country matches
-                        country_map = {
-                            'EG': 'Egypt', 'JO': 'Jordan', 'LB': 'Lebanon', 'PS': 'Palestine',
-                            'IL': 'Israel', 'UAE': 'United Arab Emirates', 'KW': 'Kuwait',
-                            'SA': 'Saudi Arabia', 'QA': 'Qatar', 'BH': 'Bahrain', 'OM': 'Oman',
-                            'IQ': 'Iraq', 'SY': 'Syria', 'YE': 'Yemen',
-                            'GB': 'United Kingdom', 'IE': 'Ireland', 'FR': 'France', 'DE': 'Germany',
-                            'IT': 'Italy', 'ES': 'Spain', 'PT': 'Portugal', 'NL': 'Netherlands',
-                            'BE': 'Belgium', 'CH': 'Switzerland', 'AT': 'Austria', 'GR': 'Greece',
-                            'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark', 'FI': 'Finland',
-                            'PL': 'Poland', 'CZ': 'Czech Republic', 'HU': 'Hungary', 'RO': 'Romania',
-                            'BG': 'Bulgaria', 'RS': 'Serbia', 'HR': 'Croatia', 'SI': 'Slovenia',
-                            'KE': 'Kenya', 'UG': 'Uganda', 'TZ': 'Tanzania', 'ET': 'Ethiopia',
-                            'SD': 'Sudan', 'SS': 'South Sudan', 'ZA': 'South Africa', 'ZW': 'Zimbabwe',
-                            'BW': 'Botswana', 'NA': 'Namibia', 'ZM': 'Zambia', 'MW': 'Malawi',
-                            'GH': 'Ghana', 'NG': 'Nigeria', 'CI': 'Ivory Coast', 'SN': 'Senegal',
-                            'NZ': 'New Zealand', 'JP': 'Japan', 'KR': 'South Korea', 'CN': 'China',
-                            'HK': 'Hong Kong', 'SG': 'Singapore', 'MY': 'Malaysia', 'TH': 'Thailand',
-                            'PH': 'Philippines', 'IN': 'India', 'PK': 'Pakistan', 'BD': 'Bangladesh',
-                            'BR': 'Brazil', 'AR': 'Argentina', 'CL': 'Chile', 'CO': 'Colombia',
-                            'PE': 'Peru', 'VE': 'Venezuela', 'MX': 'Mexico', 'PA': 'Panama',
-                            'CR': 'Costa Rica', 'GT': 'Guatemala',
-                        }
-                        
-                        expected_country = country_map.get(code)
-                        if expected_country and church_country and expected_country in church_country:
-                            valid = True
-                    
-                    if valid:
-                        seen_place_ids.add(c.place_id)
-                        new_churches.append(c)
-                        self.all_churches.append(c)
-                    else:
-                        if church_state or church_country:
-                            pbar.write(f"   ⚠️  Skipped {c.name[:40]} (in {church_state or church_country}, not {region_name})")
+                    # PASSED ALL VALIDATIONS
+                    seen_place_ids.add(c.place_id)
+                    new_churches.append(c)
+                    self.all_churches.append(c)
                 
                 total_found += len(new_churches)
                 
-                # Enhanced progress output
+                # Enhanced progress output with validation stats
                 if new_churches:
                     avg_rating = sum(c.rating for c in new_churches if c.rating) / len([c for c in new_churches if c.rating]) if any(c.rating for c in new_churches) else 0
                     pbar.write(f"   ✅ {region_name}: {len(new_churches)} churches (avg {avg_rating:.1f}★) | Total: {total_found}")
+                    if skipped_wrong_state > 0 or skipped_no_state > 0:
+                        pbar.write(f"      (Skipped: {skipped_wrong_state} wrong state, {skipped_no_state} no state)")
                 else:
                     pbar.write(f"   ⚪ {region_name}: No churches found")
+                    if skipped_wrong_state > 0 or skipped_no_state > 0:
+                        pbar.write(f"      (Found {len(churches)} but all invalid: {skipped_wrong_state} wrong state, {skipped_no_state} no state)")
                 
                 pbar.set_postfix({
                     'found': len(new_churches),
