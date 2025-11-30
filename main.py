@@ -15,6 +15,8 @@ from src.event_scraper import EventScraper
 from src.calendar_integration import GoogleCalendarIntegration
 from src.event_database import EventDatabase
 from src.scheduler import EventScheduler
+from src.event_selector import EventSelector
+from src.html_generator import HTMLCalendarGenerator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +40,8 @@ class CopticEventsBot:
         self.scraper = EventScraper(self.config, self.location_service)
         self.calendar = GoogleCalendarIntegration(self.config)
         self.scheduler = EventScheduler(self.config, self.run_discovery)
+        self.event_selector = EventSelector()
+        self.html_generator = HTMLCalendarGenerator()
         
     def run_discovery(self):
         """Main discovery process"""
@@ -69,7 +73,8 @@ class CopticEventsBot:
         if new_events and self.config.get('notifications.new_event_alerts'):
             self.send_notifications(new_events)
         
-        return new_events
+        # Return ALL events for display, not just new ones
+        return events
     
     def send_notifications(self, events):
         """Send notifications for new events"""
@@ -84,7 +89,22 @@ class CopticEventsBot:
     def run_once(self):
         """Run discovery once and exit"""
         events = self.run_discovery()
-        self.print_summary(events)
+        
+        # Interactive selection
+        selected_events = self.event_selector.select_events(events)
+        
+        if selected_events:
+            # Generate HTML calendar
+            html_file = self.html_generator.generate(selected_events)
+            print(f"\n✅ Generated interactive calendar: {html_file}")
+            print(f"\nOpen this file in your browser to:")
+            print("  • View all selected events")
+            print("  • Add events to Google Calendar with one click")
+            print("  • See full event details")
+            
+            # Also print summary
+            self.print_summary(selected_events)
+        
         return events
     
     def print_summary(self, events):
