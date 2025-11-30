@@ -200,11 +200,23 @@ class GlobalChurchDatabase:
                 
                 total_found += len(new_churches)
                 
+                # Enhanced progress output
+                if new_churches:
+                    avg_rating = sum(c.rating for c in new_churches if c.rating) / len([c for c in new_churches if c.rating]) if any(c.rating for c in new_churches) else 0
+                    pbar.write(f"   ✅ {region_name}: {len(new_churches)} churches (avg {avg_rating:.1f}★) | Total: {total_found}")
+                else:
+                    pbar.write(f"   ⚪ {region_name}: No churches found")
+                
                 pbar.set_postfix({
                     'found': len(new_churches),
                     'total': total_found,
-                    'avg_rating': f"{sum(c.rating for c in new_churches if c.rating) / len([c for c in new_churches if c.rating]):.1f}" if any(c.rating for c in new_churches) else 'N/A'
+                    'avg_rating': f"{avg_rating:.1f}" if new_churches and any(c.rating for c in new_churches) else 'N/A'
                 })
+                
+                # Progress checkpoint every 10 regions
+                if (i % 10) == 0:
+                    pbar.write(f"\n📊 CHECKPOINT [{i}/{len(self.REGIONS)}]: {total_found} total churches discovered")
+                    pbar.write(f"   Estimated completion: {int((len(self.REGIONS) - i) * 8 / 60)} minutes remaining\n")
                 
                 # Rate limiting - be nice to Google
                 time.sleep(1)
@@ -215,9 +227,14 @@ class GlobalChurchDatabase:
         
         pbar.close()
         
-        logger.info(f"\n🎉 DISCOVERY COMPLETE!")
+        logger.info(f"\n" + "="*80)
+        logger.info(f"🎉 DISCOVERY COMPLETE!")
+        logger.info(f"="*80)
         logger.info(f"   Total churches found: {len(self.all_churches)}")
         logger.info(f"   Unique place IDs: {len(seen_place_ids)}")
+        logger.info(f"   Regions searched: {len(self.REGIONS)}")
+        logger.info(f"   Average per region: {len(self.all_churches) / len(self.REGIONS):.1f}")
+        logger.info(f"="*80 + "\n")
         
         return self.all_churches
     
