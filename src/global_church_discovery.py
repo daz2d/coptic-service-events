@@ -7,6 +7,7 @@ Stores in local database for instant, free queries forever
 import os
 import logging
 import time
+import hashlib
 from typing import List, Set, Tuple
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -44,6 +45,32 @@ class GlobalChurchDatabase:
         self.discovery = GooglePlacesChurchDiscovery(api_key)
         self.all_churches = []
         self.seen_signatures = {}  # (name, city, state) -> church for smart dedup
+        self.seen_hashes = set()  # Hash-based deduplication for ultimate accuracy
+    
+    def _compute_church_hash(self, church: GooglePlaceChurch) -> str:
+        """
+        Compute unique hash for a church based on immutable characteristics
+        
+        Uses: normalized name + coordinates + address
+        This catches duplicates even if place_id somehow differs
+        """
+        # Normalize name
+        norm_name = self._normalize_church_name(church.name)
+        
+        # Get coordinates (rounded to 5 decimal places = ~1 meter accuracy)
+        lat = round(church.latitude, 5) if church.latitude else 0.0
+        lon = round(church.longitude, 5) if church.longitude else 0.0
+        
+        # Get street address (first part before comma)
+        address = getattr(church, 'address', '')
+        street = address.split(',')[0].lower().strip() if address else ''
+        
+        # Create hash string
+        hash_string = f"{norm_name}|{lat}|{lon}|{street}"
+        
+        # Compute SHA256 hash
+        hash_obj = hashlib.sha256(hash_string.encode('utf-8'))
+        return hash_obj.hexdigest()[:16]  # First 16 chars is plenty
     
     def _normalize_church_name(self, name: str) -> str:
         """Normalize church name for comparison"""
@@ -71,6 +98,12 @@ class GlobalChurchDatabase:
         Returns:
             (is_duplicate, reason)
         """
+        # 0. Hash-based check (ULTIMATE TRUTH)
+        # This catches duplicates even if place_id differs (rare but possible)
+        church_hash = self._compute_church_hash(church)
+        if church_hash in self.seen_hashes:
+            return True, "same location hash"
+        
         # 1. Exact place_id match (Google's unique identifier)
         if church.place_id in seen_place_ids:
             return True, "same place_id"
@@ -104,8 +137,14 @@ class GlobalChurchDatabase:
     
     def _record_church(self, church: GooglePlaceChurch, seen_place_ids: Set[str]):
         """Record church in tracking structures"""
+        # Record place_id
         seen_place_ids.add(church.place_id)
         
+        # Record hash
+        church_hash = self._compute_church_hash(church)
+        self.seen_hashes.add(church_hash)
+        
+        # Record signature
         norm_name = self._normalize_church_name(church.name)
         city = getattr(church, 'city', '').lower().strip()
         state = getattr(church, 'state', '').upper().strip()
@@ -267,9 +306,10 @@ class GlobalChurchDatabase:
         logger.info(f"="*80)
         logger.info(f"   Total churches found: {len(cleaned_churches)}")
         logger.info(f"   Unique place IDs: {len(seen_place_ids)}")
+        logger.info(f"   Unique location hashes: {len(self.seen_hashes)}")
+        logger.info(f"   Unique signatures: {len(self.seen_signatures)}")
         logger.info(f"   Regions searched: {len(self.REGIONS)}")
         logger.info(f"   Average per region: {len(cleaned_churches) / len(self.REGIONS):.1f}")
-        logger.info(f"   Signatures tracked: {len(self.seen_signatures)}")
         logger.info(f"="*80 + "\n")
         
         return cleaned_churches
@@ -277,23 +317,36 @@ class GlobalChurchDatabase:
     def _post_process_cleanup(self, churches: List[GooglePlaceChurch]) -> List[GooglePlaceChurch]:
         """
         Final cleanup pass to ensure data quality
-        - Remove any remaining duplicates
+        - Remove any remaining duplicates (by hash AND place_id)
         - Validate all required fields
         - Sort by state and city
         """
         logger.info(f"   Pre-cleanup count: {len(churches)}")
         
-        # Track by place_id (ultimate source of truth)
-        unique = {}
-        duplicates_removed = 0
+        # Track by BOTH hash and place_id for maximum deduplication
+        unique_by_place_id = {}
+        unique_by_hash = {}
+        duplicates_by_place_id = 0
+        duplicates_by_hash = 0
         
         for church in churches:
-            if church.place_id in unique:
-                duplicates_removed += 1
+            # Check place_id
+            if church.place_id in unique_by_place_id:
+                duplicates_by_place_id += 1
                 continue
-            unique[church.place_id] = church
+            
+            # Check hash
+            church_hash = self._compute_church_hash(church)
+            if church_hash in unique_by_hash:
+                duplicates_by_hash += 1
+                logger.debug(f"   Hash collision: {church.name} in {getattr(church, 'city', 'Unknown')}")
+                continue
+            
+            # Keep this church
+            unique_by_place_id[church.place_id] = church
+            unique_by_hash[church_hash] = church
         
-        cleaned = list(unique.values())
+        cleaned = list(unique_by_place_id.values())
         
         # Sort by state, then city, then name
         cleaned.sort(key=lambda c: (
@@ -303,8 +356,9 @@ class GlobalChurchDatabase:
         ))
         
         logger.info(f"   Post-cleanup count: {len(cleaned)}")
-        if duplicates_removed > 0:
-            logger.info(f"   Removed {duplicates_removed} duplicates in post-processing")
+        total_removed = duplicates_by_place_id + duplicates_by_hash
+        if total_removed > 0:
+            logger.info(f"   Removed {total_removed} duplicates ({duplicates_by_place_id} by place_id, {duplicates_by_hash} by hash)")
         
         return cleaned
     
