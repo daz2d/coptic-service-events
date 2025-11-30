@@ -220,7 +220,9 @@ class GooglePlacesChurchDiscovery:
         fields = [
             'place_id', 'name', 'formatted_address', 'geometry',
             'formatted_phone_number', 'website', 'rating',
-            'user_ratings_total', 'opening_hours', 'photos', 'vicinity'
+            'user_ratings_total', 'opening_hours', 'photos', 'vicinity',
+            'address_components', 'types', 'business_status', 'url',
+            'international_phone_number'
         ]
         
         params = {
@@ -250,13 +252,31 @@ class GooglePlacesChurchDiscovery:
         try:
             location = details.get('geometry', {}).get('location', {})
             
+            # Extract address components
+            address_components = details.get('address_components', [])
+            city = None
+            state = None
+            country = None
+            postal_code = None
+            
+            for component in address_components:
+                types = component.get('types', [])
+                if 'locality' in types:
+                    city = component.get('long_name')
+                elif 'administrative_area_level_1' in types:
+                    state = component.get('short_name')
+                elif 'country' in types:
+                    country = component.get('long_name')
+                elif 'postal_code' in types:
+                    postal_code = component.get('long_name')
+            
             church = GooglePlaceChurch(
                 place_id=details.get('place_id'),
                 name=details.get('name'),
                 address=details.get('formatted_address'),
                 latitude=location.get('lat'),
                 longitude=location.get('lng'),
-                phone=details.get('formatted_phone_number'),
+                phone=details.get('formatted_phone_number') or details.get('international_phone_number'),
                 website=details.get('website'),
                 rating=details.get('rating'),
                 user_ratings_total=details.get('user_ratings_total'),
@@ -264,6 +284,15 @@ class GooglePlacesChurchDiscovery:
                 photos=details.get('photos'),
                 vicinity=details.get('vicinity')
             )
+            
+            # Add parsed address components as attributes
+            church.city = city
+            church.state = state
+            church.country = country
+            church.postal_code = postal_code
+            church.types = ','.join(details.get('types', []))
+            church.business_status = details.get('business_status')
+            church.google_maps_url = details.get('url')
             
             return church
             
@@ -282,7 +311,7 @@ class GooglePlacesChurchDiscovery:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Create table
+        # Create table with enhanced fields
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS google_places_churches (
                 place_id TEXT PRIMARY KEY,
@@ -292,21 +321,30 @@ class GooglePlacesChurchDiscovery:
                 longitude REAL,
                 phone TEXT,
                 website TEXT,
+                email TEXT,
                 rating REAL,
                 user_ratings_total INTEGER,
                 opening_hours TEXT,
                 vicinity TEXT,
-                discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                city TEXT,
+                state TEXT,
+                country TEXT,
+                postal_code TEXT,
+                types TEXT,
+                business_status TEXT,
+                discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
-        # Insert churches
+        # Insert churches with enhanced data
         for church in churches:
             cursor.execute("""
                 INSERT OR REPLACE INTO google_places_churches
                 (place_id, name, address, latitude, longitude, phone, website, 
-                 rating, user_ratings_total, vicinity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rating, user_ratings_total, vicinity, city, state, country, 
+                 postal_code, types, business_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 church.place_id,
                 church.name,
@@ -317,7 +355,13 @@ class GooglePlacesChurchDiscovery:
                 church.website,
                 church.rating,
                 church.user_ratings_total,
-                church.vicinity
+                church.vicinity,
+                getattr(church, 'city', None),
+                getattr(church, 'state', None),
+                getattr(church, 'country', None),
+                getattr(church, 'postal_code', None),
+                getattr(church, 'types', None),
+                getattr(church, 'business_status', None)
             ))
         
         conn.commit()
