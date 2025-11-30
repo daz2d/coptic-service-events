@@ -85,7 +85,7 @@
     "start_with_diocese": true,
     "discover_churches": true,
     "multi_threaded": true,
-    "max_workers": 10,
-    "timeout_seconds": 30
+    "max_workers": 25,
+    "timeout_seconds": 5
   }
 }

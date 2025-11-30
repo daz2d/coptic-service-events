@@ -33,7 +33,7 @@ class ChurchEventScraper:
             
             for event_url in event_urls:
                 try:
-                    response = self.session.get(event_url, timeout=15)
+                    response = self.session.get(event_url, timeout=5)
                     response.raise_for_status()
                     
                     soup = BeautifulSoup(response.content, 'html.parser')
