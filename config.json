@@ -2,7 +2,7 @@
   "location": {
     "zip_code": "07066",
     "use_current_location": false,
-    "radius_miles": 10,
+    "radius_miles": 15,
     "include_diocese_events": true,
     "nationwide_for_mission_trips": true
   },

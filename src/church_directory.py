@@ -149,9 +149,32 @@ class ChurchDirectoryScraper:
                     try:
                         location = geolocator.geocode(city_key, timeout=10)
                         if location:
-                            coords = (location.latitude, location.longitude)
-                            if self.use_cache:
-                                self.cache.set_geocode(city_key, coords[0], coords[1])
+                            # Verify this is actually in the correct state
+                            address_lower = location.address.lower()
+                            state_code = church['state'].upper() if 'state' in church else ''
+                            
+                            # State validation mapping
+                            state_names = {
+                                'NJ': ['new jersey', ', nj'],
+                                'NY': ['new york', ', ny'],
+                                'CT': ['connecticut', ', ct'],
+                                'PA': ['pennsylvania', ', pa']
+                            }
+                            
+                            state_found = False
+                            if state_code in state_names:
+                                for state_variant in state_names[state_code]:
+                                    if state_variant in address_lower:
+                                        state_found = True
+                                        break
+                            
+                            if state_found:
+                                coords = (location.latitude, location.longitude)
+                                if self.use_cache:
+                                    self.cache.set_geocode(city_key, coords[0], coords[1])
+                            else:
+                                logger.debug(f"Skipping {city_key} - geocoded to {location.address}, not {state_code}")
+                                continue
                     except Exception as e:
                         logger.debug(f"Could not geocode {city_key}: {e}")
                         continue
